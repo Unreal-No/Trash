@@ -49,7 +49,8 @@ export interface ReceiptView {
   municipality: string;
   receiptNo: string;
   payerCode: string;
-  period: string;
+  address: string; // แบบปิดบัง
+  periods: string; // สรุปงวด เช่น ต.ค. 2569 – ก.ย. 2570 (12 งวด)
   amountSatang: number;
   method: keyof typeof METHOD_TH;
   paidAt: string;
@@ -90,7 +91,8 @@ export function receiptFlex(r: ReceiptView) {
           { type: 'text', text: `${satangToBaht(r.amountSatang)} บาท`, size: 'xxl', weight: 'bold', color: '#1B7F3B' },
           row('เลขที่', r.receiptNo),
           row('รหัสผู้ชำระ', r.payerCode),
-          row('งวด', r.period),
+          row('ที่อยู่', r.address),
+          row('งวด', r.periods),
           row('ช่องทาง', METHOD_TH[r.method]),
           row('วันที่', date),
         ],

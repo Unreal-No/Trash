@@ -7,7 +7,7 @@ export interface BankPayment {
   txnId: string;
   billerId: string;
   ref1: string;
-  ref2: string;
+  ref2: string; // ไม่บังคับ (ref1 = เลขคำสั่งชำระ)
   amountSatang: number;
   paidAt: string; // ISO
   channel: 'QR' | 'BANK';
@@ -47,7 +47,7 @@ export function parseBankPayment(body: unknown): BankPayment {
     txnId: s('txnId'),
     billerId: s('billerId'),
     ref1: s('ref1').toUpperCase(),
-    ref2: s('ref2').toUpperCase(),
+    ref2: typeof b.ref2 === 'string' ? b.ref2.toUpperCase() : '',
     amountSatang: bahtToSatang(s('amount')),
     paidAt: paidAt.toISOString(),
     channel: b.channel === 'BANK' ? 'BANK' : 'QR',

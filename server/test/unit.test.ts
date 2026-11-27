@@ -53,3 +53,13 @@ test('fiscal year BE starts Oct 1 (Bangkok time)', () => {
   assert.equal(fiscalYearBE('2026-09-30T16:59:00Z'), 2569);
   assert.equal(fiscalYearBE('2026-09-30T17:00:00Z'), 2570);
 });
+
+test('fiscal year periods + due dates + summary', async () => {
+  const { fiscalYearPeriods, dueDateOf, periodsSummary } = await import('../src/util.ts');
+  const p = fiscalYearPeriods(2570);
+  assert.equal(p.length, 12);
+  assert.equal(p[0], '2569-10');
+  assert.equal(p[11], '2570-09');
+  assert.equal(dueDateOf('2569-12'), '2027-01-15');
+  assert.equal(periodsSummary(p), 'ต.ค. 2569 – ก.ย. 2570 (12 งวด)');
+});

@@ -4,8 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { BankAuthError, parseBankPayment, verifyBankRequest } from './bank/adapter.ts';
 import { sha256Hex } from './crypto.ts';
 import { verifyLineSignature, type IdTokenVerifier, type LineClient } from './line.ts';
-import { satangToBaht } from './promptpay.ts';
-import { AppError, PaymentService } from './service.ts';
+import { AppError, PaymentService, parseSelection } from './service.ts';
 import type { Config } from './config.ts';
 import type { Staff, Store } from './store/types.ts';
 
@@ -104,30 +103,39 @@ export function createApp({ cfg, store, line, verifyIdToken }: Deps) {
       })
       .catch(next);
   });
+  liff.get('/accounts', wrap(async (_req, res) => res.json(await svc.accountsFor(res.locals.lineUserId))));
   liff.post(
-    '/link',
+    '/accounts',
     rateLimit(5, 10 * 60_000, (req) => String(req.res?.locals.lineUserId)),
     wrap(async (req, res) => {
-      const { payerCode, invoiceNo, consent } = req.body ?? {};
+      const { payerCode, invoiceNo, label, consent } = req.body ?? {};
       if (typeof payerCode !== 'string' || typeof invoiceNo !== 'string')
         throw new AppError(400, 'กรุณากรอกรหัสผู้ชำระและเลขที่ใบแจ้งหนี้');
-      res.json(await svc.link(res.locals.lineUserId, payerCode, invoiceNo, consent === true));
+      res.json(await svc.link(res.locals.lineUserId, payerCode, invoiceNo, String(label ?? ''), consent === true));
     }),
   );
   liff.delete(
-    '/link',
-    wrap(async (_req, res) => {
-      await svc.unlink(res.locals.lineUserId);
+    '/accounts/:code',
+    wrap(async (req, res) => {
+      await svc.unlink(res.locals.lineUserId, String(req.params.code));
       res.json({ ok: true });
     }),
   );
-  liff.get('/invoices', wrap(async (_req, res) => res.json(await svc.invoicesFor(res.locals.lineUserId))));
-  liff.get('/receipts', wrap(async (_req, res) => res.json(await svc.receiptsFor(res.locals.lineUserId))));
   liff.post(
-    '/invoices/:id/qr',
-    rateLimit(20, 10 * 60_000, (req) => String(req.res?.locals.lineUserId)),
-    wrap(async (req, res) => res.json(await svc.createQr(res.locals.lineUserId, String(req.params.id)))),
+    '/quote',
+    rateLimit(60, 10 * 60_000, (req) => String(req.res?.locals.lineUserId)),
+    wrap(async (req, res) => res.json(await svc.quoteForLine(res.locals.lineUserId, parseSelection(req.body)))),
   );
+  liff.post(
+    '/orders',
+    rateLimit(20, 10 * 60_000, (req) => String(req.res?.locals.lineUserId)),
+    wrap(async (req, res) => res.json(await svc.createQrOrder(res.locals.lineUserId, parseSelection(req.body)))),
+  );
+  liff.get(
+    '/orders/:no',
+    wrap(async (req, res) => res.json(await svc.orderStatus(res.locals.lineUserId, String(req.params.no)))),
+  );
+  liff.get('/receipts', wrap(async (_req, res) => res.json(await svc.receiptsFor(res.locals.lineUserId))));
   app.use('/api/liff', liff);
 
   // ---------- ธนาคาร ----------
@@ -167,17 +175,17 @@ export function createApp({ cfg, store, line, verifyIdToken }: Deps) {
       .catch(next);
   });
   staffApp.get(
-    '/payers/:code/invoices',
+    '/payers/:code',
     rateLimit(60, 60_000, (req) => String((req.res?.locals.staff as Staff | undefined)?.id)),
     wrap(async (req, res) => res.json(await svc.staffLookup(res.locals.staff, String(req.params.code)))),
   );
+  staffApp.post('/quote', wrap(async (req, res) => res.json(await svc.staffQuote(res.locals.staff, parseSelection(req.body)))));
   staffApp.post(
     '/counter/pay',
     wrap(async (req, res) => {
-      const { invoiceId, receivedSatang } = req.body ?? {};
-      if (typeof invoiceId !== 'string' || typeof receivedSatang !== 'number')
-        throw new AppError(400, 'ข้อมูลไม่ครบ');
-      res.json(await svc.counterPay(res.locals.staff, invoiceId, receivedSatang));
+      const { receivedSatang } = req.body ?? {};
+      if (typeof receivedSatang !== 'number') throw new AppError(400, 'ข้อมูลไม่ครบ');
+      res.json(await svc.counterPay(res.locals.staff, parseSelection(req.body), receivedSatang));
     }),
   );
   app.use('/api/staff', staffApp);
@@ -196,7 +204,7 @@ export function createApp({ cfg, store, line, verifyIdToken }: Deps) {
 h1{color:#1B7F3B;font-size:20px}.ok{background:#e6f4ea;padding:8px 12px;border-radius:8px}td{padding:4px 8px}</style>
 <h1>${esc(cfg.municipalityName)}</h1><p class="ok">✔ ใบเสร็จถูกต้อง ออกโดยระบบ</p><table>
 <tr><td>เลขที่</td><td>${esc(r.receiptNo)}</td></tr><tr><td>รหัสผู้ชำระ</td><td>${esc(r.payerCode)}</td></tr>
-<tr><td>งวด</td><td>${esc(r.period)}</td></tr><tr><td>จำนวนเงิน</td><td>${satangToBaht(r.amountSatang)} บาท</td></tr>
+<tr><td>งวด</td><td>${esc(r.periods)}</td></tr><tr><td>จำนวนเงิน</td><td>${(r.amountSatang / 100).toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท</td></tr>
 <tr><td>ช่องทาง</td><td>${esc(r.method)}</td></tr><tr><td>วันที่</td><td>${esc(date)}</td></tr></table>`);
     }),
   );

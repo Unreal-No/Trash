@@ -14,15 +14,21 @@ main{max-width:640px;margin:0 auto;padding:12px}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
 .muted{color:var(--mu);font-size:.9rem}
 .row{display:flex;gap:8px}
-input{width:100%;padding:11px;border:1px solid var(--bd);border-radius:8px;font:inherit;margin:4px 0 8px}
+.between{justify-content:space-between}
+input[type=text],input[type=password],input[type=number]{width:100%;padding:11px;border:1px solid var(--bd);border-radius:8px;font:inherit;margin:4px 0 8px}
 button.btn{padding:11px 16px;border:0;border-radius:10px;background:var(--g);color:#fff;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap}
-button.btn.full{width:100%}
+button.btn:disabled{background:#a9bfb1;cursor:not-allowed}
+button.btn.full{width:100%;margin-top:6px}
 .amt{font-size:1.4rem;font-weight:700;color:var(--gd)}
+.badge{display:inline-block;padding:1px 8px;border-radius:99px;font-size:.8rem;background:var(--gl);color:var(--gd)}
 .err{color:var(--er);margin:6px 0}
 .ok{background:var(--gl);color:var(--gd);padding:10px;border-radius:8px;margin-top:8px}
+.opt{display:flex;align-items:flex-start;gap:8px;padding:5px 0;cursor:pointer}
+.opt input{margin-top:6px;width:18px;height:18px;flex:none}
+.sep{border-top:1px dashed var(--bd);margin-top:8px;padding-top:6px}
 .hide{display:none}
 #print{display:none}
-@media print{body>*:not(#print){display:none!important}#print{display:block;padding:16px;color:#000;background:#fff;font-size:14pt}#print h2,#print p{margin:4px 0}#print hr{border:0;border-top:1px dashed #000}}
+@media print{body>*:not(#print){display:none!important}#print{display:block;padding:16px;color:#000;background:#fff;font-size:14pt}#print h2,#print p{margin:4px 0}#print hr{border:0;border-top:1px dashed #000}#print section{page-break-after:always}}
 </style>
 </head>
 <body>
@@ -31,11 +37,13 @@ button.btn.full{width:100%}
 <div id="print"></div>
 <script>
 const $app = document.getElementById('app'), $print = document.getElementById('print'), $out = document.getElementById('out');
-const UNPAID = ['UNPAID','PENDING','MISMATCH'];
-const ERR = {INVOICE_NOT_FOUND:'ไม่พบใบแจ้งหนี้',PAYER_NOT_FOUND:'ไม่พบรหัสผู้ชำระ',ALREADY_PAID:'ใบแจ้งหนี้นี้ชำระแล้ว',INSUFFICIENT_AMOUNT:'จำนวนเงินที่รับไม่เพียงพอ'};
+const CAT = {RESIDENTIAL:'ที่อยู่อาศัย',COMMERCIAL:'ร้านค้า/กิจการ'};
+const MON = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 let token = '';
 try { token = sessionStorage.getItem('staffToken') || ''; } catch (e) {}
 
+/** replaceChildren ที่รับ array/null ได้ */
+const put = (node, ...kids) => node.replaceChildren(...kids.flat(Infinity).filter(c => c != null && c !== false));
 function el(tag, props, ...kids) {
   const e = document.createElement(tag);
   for (const k in (props || {})) {
@@ -47,7 +55,9 @@ function el(tag, props, ...kids) {
   return e;
 }
 const baht = s => (s / 100).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' บาท';
-const errMsg = d => (d && (ERR[d.error] || d.error)) || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
+const fper = p => { const m = /^(\d{4})-(\d{2})$/.exec(p || ''); return m && MON[+m[2] - 1] ? MON[+m[2] - 1] + ' ' + m[1] : String(p || '-'); };
+const psum = ps => { const s = [...ps].sort(); return s.length > 3 ? fper(s[0]) + ' – ' + fper(s[s.length - 1]) + ' (' + s.length + ' งวด)' : s.map(fper).join(', '); };
+const errMsg = d => (d && d.error) || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
 
 async function api(method, path, body) {
   const h = {Authorization: 'Bearer ' + token};
@@ -80,14 +90,14 @@ function renderLogin(msg) {
 }
 
 function renderSearch() {
-  $out.classList.remove('hide');
+  $out.classList.remove('hide'); put($print, );
   const code = el('input', {type: 'text', placeholder: 'รหัสผู้ชำระ', autocomplete: 'off'});
   const result = el('div');
   const go = async () => {
     if (!code.value.trim()) return;
     result.replaceChildren(el('div', {class: 'muted'}, 'กำลังค้นหา...'));
     try {
-      const r = await api('GET', '/api/staff/payers/' + encodeURIComponent(code.value.trim()) + '/invoices');
+      const r = await api('GET', '/api/staff/payers/' + encodeURIComponent(code.value.trim()));
       if (!r.ok) { result.replaceChildren(el('div', {class: 'err'}, errMsg(r.data))); return; }
       showPayer(result, r.data);
     } catch (e) { if (e.message !== '401') result.replaceChildren(el('div', {class: 'err'}, 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')); }
@@ -97,49 +107,86 @@ function renderSearch() {
 }
 
 function showPayer(root, d) {
-  root.replaceChildren(el('div', {class: 'card'}, el('b', null, d.payer.name), el('div', {class: 'muted'}, 'รหัส: ' + d.payer.code), el('div', {class: 'muted'}, d.payer.address)));
-  const list = d.invoices.filter(i => UNPAID.includes(i.status));
-  if (!list.length) root.append(el('div', {class: 'card'}, 'ไม่มีรายการค้างชำระ'));
-  list.forEach(i => root.append(invoiceCard(i, d.payer)));
-}
+  const p = d.payer, fy = d.currentFiscalYear, un = d.invoices.filter(i => i.status === 'UNPAID');
+  const inv = new Set(un.map(i => i.id)), yr = new Map();
+  let q = {ok: false, amt: 0, items: [], err: '', busy: false}, timer = 0, seq = 0;
+  const list = el('div'), recv = el('input', {type: 'number', min: '0', step: '0.01', inputmode: 'decimal', placeholder: '0.00'});
+  const qBox = el('div'), change = el('div', {class: 'muted'}), msg = el('div');
+  const btn = el('button', {class: 'btn full', onclick: pay}, 'รับชำระเงินสด');
+  const received = () => Math.round(parseFloat(recv.value || '0') * 100) || 0;
+  const body = () => ({invoiceIds: [...inv], years: [...yr.values()]});
 
-function invoiceCard(inv, payer) {
-  const rec = el('input', {type: 'number', min: '0', step: '0.01', inputmode: 'decimal', placeholder: '0.00'});
-  const change = el('div', {class: 'muted'}, 'เงินทอน: -');
-  const msg = el('div'), card = el('div', {class: 'card'});
-  const received = () => Math.round(parseFloat(rec.value || '0') * 100) || 0;
-  rec.addEventListener('input', () => {
-    const c = received() - inv.amountSatang;
-    change.textContent = 'เงินทอน: ' + (received() ? (c >= 0 ? baht(c) : 'ไม่พอ (ขาด ' + baht(-c) + ')') : '-');
-  });
-  const btn = el('button', {class: 'btn full', onclick: async () => {
-    msg.replaceChildren();
-    if (received() < inv.amountSatang) { msg.append(el('div', {class: 'err'}, 'จำนวนเงินที่รับไม่เพียงพอ')); return; }
-    btn.disabled = true;
+  function paint() {
+    put(qBox, q.busy ? el('div', {class: 'muted'}, 'กำลังคำนวณ...') : null,
+      q.err ? el('div', {class: 'err'}, q.err) : null,
+      q.ok ? [q.items.map(i => el('div', {class: 'row between muted'}, el('span', null, fper(i.period)), el('span', null, baht(i.amountSatang)))),
+        el('div', {class: 'row between sep'}, el('b', null, 'รวม ' + q.items.length + ' งวด'), el('span', {class: 'amt'}, baht(q.amt)))] : null);
+    const c = received() - q.amt;
+    change.textContent = 'เงินทอน: ' + (!q.ok || !received() ? '-' : c >= 0 ? baht(c) : 'ไม่พอ (ขาด ' + baht(-c) + ')');
+    btn.disabled = !(q.ok && q.amt > 0 && received() >= q.amt);
+  }
+  function requote() {
+    clearTimeout(timer); const s = ++seq, b = body();
+    if (!b.invoiceIds.length && !b.years.length) { q = {ok: false, amt: 0, items: [], err: '', busy: false}; paint(); return; }
+    q = {ok: false, amt: 0, items: [], err: '', busy: true}; paint();
+    timer = setTimeout(async () => {
+      let n;
+      try {
+        const r = await api('POST', '/api/staff/quote', b);
+        n = r.ok ? {ok: true, amt: r.data.amountSatang, items: r.data.items || [], err: '', busy: false} : {ok: false, amt: 0, items: [], err: errMsg(r.data), busy: false};
+      } catch (e) { if (e.message === '401') return; n = {ok: false, amt: 0, items: [], err: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้', busy: false}; }
+      if (s === seq) { q = n; paint(); }
+    }, 300);
+  }
+  const opt = (checked, text, fn) => {
+    const c = el('input', {type: 'checkbox', onchange: () => { fn(c.checked); requote(); }});
+    c.checked = checked;
+    return el('label', {class: 'opt'}, c, el('span', null, text));
+  };
+  const yopt = (y, text) => opt(false, text, on => { if (on) yr.set(y, {payerCode: p.code, fiscalYear: y}); else yr.delete(y); });
+
+  async function pay() {
+    msg.replaceChildren(); btn.disabled = true;
     try {
-      const r = await api('POST', '/api/staff/counter/pay', {invoiceId: inv.id, receivedSatang: received()});
-      if (!r.ok) { msg.append(el('div', {class: 'err'}, errMsg(r.data))); btn.disabled = false; return; }
-      done(card, r.data, inv, payer);
-    } catch (e) { btn.disabled = false; if (e.message !== '401') msg.append(el('div', {class: 'err'}, 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')); }
-  }}, 'รับชำระเงินสด');
-  card.append(el('div', null, 'ใบแจ้งหนี้ ' + inv.invoiceNo + ' · งวด ' + inv.period),
-    el('div', {class: 'amt'}, baht(inv.amountSatang)),
-    el('label', null, 'รับเงิน (บาท)'), rec, change, btn, msg);
-  return card;
+      const r = await api('POST', '/api/staff/counter/pay', Object.assign(body(), {receivedSatang: received()}));
+      if (!r.ok) { msg.append(el('div', {class: 'err'}, errMsg(r.data))); paint(); return; }
+      done(root, r.data, p);
+    } catch (e) { paint(); if (e.message !== '401') msg.append(el('div', {class: 'err'}, 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')); }
+  }
+
+  recv.addEventListener('input', paint);
+  list.append(un.length ? un.map(i => opt(true, fper(i.period) + ' · ' + baht(i.amountSatang), on => { if (on) inv.add(i.id); else inv.delete(i.id); }))
+    : el('div', {class: 'muted'}, 'ไม่มีรายการค้างชำระ'),
+    el('div', {class: 'sep'}), yopt(fy, 'ทั้งปีงบประมาณ ' + fy), yopt(fy + 1, 'ล่วงหน้าทั้งปี ' + (fy + 1)));
+  root.replaceChildren(
+    el('div', {class: 'card'}, el('b', null, p.name), ' ', el('span', {class: 'badge'}, CAT[p.category] || p.category),
+      el('div', {class: 'muted'}, 'รหัส: ' + p.code), el('div', {class: 'muted'}, p.address),
+      el('div', {class: 'muted'}, 'อัตรา ' + baht(p.rateSatang) + '/เดือน')),
+    el('div', {class: 'card'}, list),
+    el('div', {class: 'card'}, qBox, el('label', null, 'รับเงิน (บาท)'), recv, change, btn, msg));
+  requote();
 }
 
-function done(card, res, inv, payer) {
-  const r = res.receipt, now = new Date().toLocaleString('th-TH', {dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Bangkok'});
-  card.replaceChildren(el('div', {class: 'ok'}, 'บันทึกการชำระเงินแล้ว เลขที่ใบเสร็จ ' + r.receiptNo),
-    el('p', null, 'ยอดชำระ ' + baht(r.amountSatang) + ' · เงินทอน ' + baht(r.changeSatang || 0)),
+function done(root, res, p) {
+  const now = new Date().toLocaleString('th-TH', {dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Bangkok'});
+  const rs = res.receipts || [];
+  root.replaceChildren(el('div', {class: 'card'},
+    el('div', {class: 'ok'}, 'บันทึกการชำระเงินแล้ว'),
+    rs.map(r => el('div', {class: 'sep'}, el('b', null, 'ใบเสร็จ ' + r.receiptNo), el('div', null, baht(r.amountSatang) + ' · งวด ' + psum(r.periods || [])),
+      r.verifyUrl ? el('a', {href: r.verifyUrl, target: '_blank', rel: 'noopener'}, 'ลิงก์ตรวจสอบใบเสร็จ') : null)),
+    el('p', null, 'ยอดชำระ ' + baht(res.amountSatang) + ' · เงินทอน ' + baht(res.changeSatang || 0)),
     el('p', {class: 'muted'}, res.lineNotified ? 'ส่งแจ้งเตือนทาง LINE แล้ว' : 'ไม่ได้ส่งแจ้งเตือนทาง LINE (ผู้ชำระยังไม่เชื่อมบัญชี หรือส่งไม่สำเร็จ)'),
-    r.verifyUrl ? el('p', null, el('a', {href: r.verifyUrl, target: '_blank', rel: 'noopener'}, 'ลิงก์ตรวจสอบใบเสร็จ')) : null,
-    el('button', {class: 'btn full', onclick: () => window.print()}, 'พิมพ์ใบเสร็จ'));
-  $print.replaceChildren(el('h2', null, 'เทศบาล'), el('p', null, 'ใบเสร็จรับเงินค่าธรรมเนียมขยะ'), el('hr'),
-    el('p', null, 'เลขที่ใบเสร็จ: ' + r.receiptNo), el('p', null, 'ผู้ชำระ: ' + payer.name + ' (' + payer.code + ')'),
-    el('p', null, 'งวด: ' + inv.period + ' · ใบแจ้งหนี้ ' + inv.invoiceNo),
-    el('p', null, 'จำนวนเงิน: ' + baht(r.amountSatang)), el('p', null, 'เงินทอน: ' + baht(r.changeSatang || 0)),
-    el('p', null, 'วันที่: ' + now), el('hr'), el('p', null, 'ผู้รับเงิน: ______________________ (เจ้าหน้าที่เคาน์เตอร์)'));
+    el('button', {class: 'btn full', onclick: () => window.print()}, 'พิมพ์ใบเสร็จ'),
+    el('button', {class: 'btn full', onclick: renderSearch}, 'รายการใหม่')));
+  const recvTotal = (res.amountSatang || 0) + (res.changeSatang || 0);
+  put($print, rs.map((r, idx) => el('section', null,
+    el('h2', null, 'เทศบาล'), el('p', null, 'ใบเสร็จรับเงินค่าธรรมเนียมขยะ'), el('hr'),
+    el('p', null, 'เลขที่ใบเสร็จ: ' + r.receiptNo), el('p', null, 'รหัสผู้ชำระ: ' + (r.payerCode || p.code)),
+    el('p', null, 'ชื่อ: ' + p.name),
+    el('p', null, 'งวด: ' + (r.periods || []).map(fper).join(', ')),
+    el('p', null, 'จำนวนเงิน: ' + baht(r.amountSatang)),
+    rs.length === 1 ? [el('p', null, 'รับเงิน: ' + baht(recvTotal)), el('p', null, 'เงินทอน: ' + baht(res.changeSatang || 0))] : null,
+    el('p', null, 'วันที่: ' + now), el('hr'), el('p', null, 'ผู้รับเงิน: ______________________ (เจ้าหน้าที่เคาน์เตอร์)'))));
 }
 
 token ? renderSearch() : renderLogin();

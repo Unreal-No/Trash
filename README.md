@@ -12,7 +12,7 @@
 ```bash
 cd server && npm install && npm run dev
 ```
-เปิด `http://localhost:3000/staff/` token `demo-cashier` ค้นหา `A0001`
+เปิด `http://localhost:3000/staff/` token `demo-cashier` ค้นหา `A0001` / `A0002` / `B0001` (ร้านค้า)
 
 ## ทดสอบ
 ```bash

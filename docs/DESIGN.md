@@ -3,9 +3,12 @@
 ## 1. ขอบเขต (Requirements)
 
 **ผู้ใช้ (ประชาชน) ผ่าน LINE OA / LIFF**
-- ลงทะเบียนผูกบัญชี LINE กับ "รหัสผู้ใช้น้ำ/ทะเบียนบ้าน/รหัสผู้ชำระ" (ยืนยันด้วย OTP หรือรหัสจากใบแจ้งหนี้)
-- ดูยอดค้างชำระ / ประวัติ
-- เลือกวิธีชำระ: (1) สร้าง Thai QR (PromptPay Bill Payment) (2) ชำระผ่านบัญชีธนาคาร/Mobile Banking (Deeplink) (3) ชำระเงินสดที่เคาน์เตอร์
+- 1 LINE ผูกได้หลายบัญชี (สูงสุด 20): บ้านตัวเอง, บ้านคนอื่น (จ่ายแทน), เจ้าของหลายหลัง, ร้านค้า — ตั้งชื่อเรียกเองได้ เช่น "บ้านแม่"
+- 1 บัญชีผูกได้หลาย LINE (เจ้าของ/ญาติ/ผู้เช่า) → ใบเสร็จส่งถึงทุกคนที่ผูก
+- ยืนยันการผูกด้วย รหัสผู้ชำระ + เลขที่ใบแจ้งหนี้ (เลขสุ่ม เดาไม่ได้ พิมพ์บนใบแจ้งหนี้/ขอที่เคาน์เตอร์)
+- ประเภทบัญชี: ที่อยู่อาศัย / ร้านค้า-กิจการ (อัตรารายเดือนต่างกัน กำหนดรายบัญชี)
+- เลือกจ่าย: งวดที่ค้าง (เลือกเป็นรายเดือน), ทั้งปีงบประมาณปัจจุบัน, ล่วงหน้าทั้งปีถัดไป — รวมหลายบ้านได้ใน **QR เดียว**
+- เลือกวิธีชำระ: (1) Thai QR (PromptPay Bill Payment) (2) Mobile Banking (3) เงินสดที่เคาน์เตอร์ (เลือกงวด/ทั้งปีได้เหมือนกัน)
 - รับใบเสร็จดิจิทัลอัตโนมัติใน LINE (Flex Message + ลิงก์ PDF/ตรวจสอบ QR)
 - แจ้งเตือนใบแจ้งหนี้/ค้างชำระ
 
@@ -36,7 +39,9 @@
 
 ใช้ **Thai QR Payment แบบ Bill Payment (Tag 30)** ไม่ใช่ PromptPay เบอร์/บัตร (Tag 29)
 - เทศบาลสมัคร **Biller ID** กับธนาคาร (เช่น KTB/กรุงไทย ที่ อปท. ใช้ทั่วไป, หรือ KBank/SCB)
-- QR มี `Ref1 = รหัสผู้ชำระ`, `Ref2 = เลขใบแจ้งหนี้`, จำนวนเงินตายตัว → ธนาคารส่ง **callback** กลับมาพร้อม ref → ระบบปิดใบแจ้งหนี้อัตโนมัติ (อัปเดตสถานะตรงกับธนาคาร)
+- ทุกครั้งที่กดจ่ายจะสร้าง **คำสั่งชำระ (order)** รวมหลายงวด/หลายบัญชี → QR มี `Ref1 = เลขคำสั่งชำระ` (สุ่ม 12 ตัว) + ยอดรวมตายตัว
+- ธนาคารส่ง **callback** พร้อม Ref1 → ปิดทุกงวดใน order พร้อมกัน (atomic) → ออก **ใบเสร็จแยกตามบัญชี** (บ้านละ 1 ใบ)
+- จ่ายทั้งปี: ระบบสร้างใบแจ้งหนี้ที่ยังไม่ออกของปีงบประมาณนั้นให้อัตโนมัติ (ตามอัตราของบัญชี)
 - Tag 29 (เบอร์ PromptPay) ไม่มี callback → ต้องตรวจสลิปเอง ไม่แนะนำ
 
 | ช่องทาง | การยืนยันสถานะ |
@@ -52,7 +57,7 @@
 - เก็บจำนวนเงินเป็น **สตางค์ (integer)** ไม่ใช้ float
 - กระทบยอดรายวันกับ statement ธนาคาร → รายการที่หลุด callback จะถูกเติม
 
-**สถานะใบแจ้งหนี้**: `UNPAID → PENDING(QR ออกแล้ว) → PAID` / `MISMATCH` / `CANCELLED`
+**สถานะ**: ใบแจ้งหนี้ `UNPAID → PAID` / `CANCELLED` · คำสั่งชำระ `OPEN → PAID` / `MISMATCH` (ยอดไม่ตรง) / `REFUND` (มีงวดถูกจ่ายไปแล้วจาก QR อื่น → เจ้าหน้าที่คืนเงิน)
 
 ## 4. ใบเสร็จดิจิทัล
 - เลขที่ใบเสร็จรันต่อเนื่องตามปีงบประมาณ (`R2569-000001`) — ห้ามข้าม/ซ้ำ (DB sequence ภายใน transaction)
@@ -65,23 +70,27 @@
 - เก็บเท่าที่จำเป็น: ชื่อ, ที่อยู่จัดเก็บ, เบอร์โทร, LINE userId — **ไม่เก็บเลขบัตรประชาชน** ถ้าไม่จำเป็น
 - ฟิลด์อ่อนไหว (เบอร์โทร/ชื่อ) เข้ารหัส **AES-256-GCM** ระดับแอป, ค้นหาด้วย HMAC blind index
 - บันทึกความยินยอม (consent) + เวอร์ชันนโยบาย, ผู้ใช้ยกเลิกผูก LINE ได้เอง
-- ใน LINE แสดงข้อมูลแบบ mask (`08x-xxx-1234`, `นาย ส*** ใ***`)
+- ใน LINE แสดงข้อมูลแบบ mask (`08x-xxx-1234`, `น*** ใ***`) — ผู้ที่ผูกบ้านคนอื่นเห็นเฉพาะข้อมูลที่ปิดบังแล้ว
+- ใบเสร็จ Flex ไม่มีชื่อเต็ม แสดงเฉพาะรหัสและบ้านเลขที่
 - Back-office: RBAC (ADMIN / CASHIER / VIEWER), audit log ทุกการดู/แก้ไขข้อมูลส่วนบุคคล
 - HTTPS เท่านั้น, secrets ใน env/secret manager, ข้อมูลอยู่ในไทย (cloud region TH หรือ server เทศบาล)
 - ระยะเวลาเก็บ: ข้อมูลการเงินตามระเบียบ (10 ปี), log เข้าถึง 1 ปี
 
 ## 6. Data Model (ย่อ)
-ดู `server/db/schema.sql` — ตารางหลัก: `payers`, `line_links`, `invoices`, `payments`, `receipts`, `staff`, `audit_logs`, `consents`
+ดู `server/db/schema.sql` — `payers` (1 บัญชี = 1 สถานที่, category, rate), `line_links` (LINE↔บัญชี หลายต่อหลาย + label), `invoices`, `orders` + `order_items`, `payments`, `receipts` + `receipt_items`, `staff`, `audit_logs`
 
 ## 7. API
 | Method | Path | ผู้ใช้ |
 |---|---|---|
 | POST | `/webhook/line` | LINE platform (ตรวจ `x-line-signature`) |
-| POST | `/api/liff/link` | ผูกบัญชี (LIFF id token + payer code + invoice/OTP) |
-| GET | `/api/liff/invoices` | ยอดค้าง |
-| POST | `/api/liff/invoices/:id/qr` | สร้าง Thai QR |
+| GET/POST/DELETE | `/api/liff/accounts[/:code]` | ดู/ผูก/ยกเลิกบัญชี |
+| POST | `/api/liff/quote` | คำนวณยอด `{invoiceIds, years:[{payerCode,fiscalYear}]}` |
+| POST | `/api/liff/orders` | สร้างคำสั่งชำระ + Thai QR |
+| GET | `/api/liff/orders/:no` | สถานะ (polling) |
+| GET | `/api/liff/receipts` | ใบเสร็จทุกบัญชี |
 | POST | `/api/bank/callback` | ธนาคาร (HMAC) |
-| POST | `/api/staff/counter/pay` | เจ้าหน้าที่รับเงินสด |
+| GET | `/api/staff/payers/:code` | เจ้าหน้าที่ค้นหา |
+| POST | `/api/staff/quote`, `/api/staff/counter/pay` | รับเงินสด (รายงวด/ทั้งปี) |
 | GET | `/r/:receiptNo` | ตรวจสอบใบเสร็จ |
 
 LIFF ยืนยันตัวตนด้วย **LINE ID token** ตรวจกับ `https://api.line.me/oauth2/v2.1/verify` ฝั่ง server (ไม่เชื่อ userId จาก client)
