@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: trash
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      POSTGRES_DB: trash
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./server/db/schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+  api:
+    build: ./server
+    env_file: ./server/.env
+    depends_on: [db]
+    ports: ["3000:3000"]
+volumes:
+  pgdata:

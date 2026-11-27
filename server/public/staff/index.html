@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>เคาน์เตอร์รับชำระค่าขยะ</title>
+<style>
+:root{--g:#1b7f4b;--gd:#145c37;--gl:#e3f2e8;--bg:#f2f7f3;--tx:#1d2b22;--mu:#5f6f65;--card:#fff;--bd:#d5e3d9;--er:#c0392b}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Sarabun","Noto Sans Thai",system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.6}
+header{background:var(--g);color:#fff;padding:14px 16px;font-weight:700;font-size:1.1rem;display:flex;justify-content:space-between;align-items:center}
+header button{background:none;border:1px solid #fff;color:#fff;border-radius:8px;padding:4px 10px;font:inherit;cursor:pointer}
+main{max-width:640px;margin:0 auto;padding:12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
+.muted{color:var(--mu);font-size:.9rem}
+.row{display:flex;gap:8px}
+input{width:100%;padding:11px;border:1px solid var(--bd);border-radius:8px;font:inherit;margin:4px 0 8px}
+button.btn{padding:11px 16px;border:0;border-radius:10px;background:var(--g);color:#fff;font:inherit;font-weight:700;cursor:pointer;white-space:nowrap}
+button.btn.full{width:100%}
+.amt{font-size:1.4rem;font-weight:700;color:var(--gd)}
+.err{color:var(--er);margin:6px 0}
+.ok{background:var(--gl);color:var(--gd);padding:10px;border-radius:8px;margin-top:8px}
+.hide{display:none}
+#print{display:none}
+@media print{body>*:not(#print){display:none!important}#print{display:block;padding:16px;color:#000;background:#fff;font-size:14pt}#print h2,#print p{margin:4px 0}#print hr{border:0;border-top:1px dashed #000}}
+</style>
+</head>
+<body>
+<header><span>เคาน์เตอร์รับชำระค่าขยะ</span><button id="out" class="hide">ออกจากระบบ</button></header>
+<main id="app"></main>
+<div id="print"></div>
+<script>
+const $app = document.getElementById('app'), $print = document.getElementById('print'), $out = document.getElementById('out');
+const UNPAID = ['UNPAID','PENDING','MISMATCH'];
+const ERR = {INVOICE_NOT_FOUND:'ไม่พบใบแจ้งหนี้',PAYER_NOT_FOUND:'ไม่พบรหัสผู้ชำระ',ALREADY_PAID:'ใบแจ้งหนี้นี้ชำระแล้ว',INSUFFICIENT_AMOUNT:'จำนวนเงินที่รับไม่เพียงพอ'};
+let token = '';
+try { token = sessionStorage.getItem('staffToken') || ''; } catch (e) {}
+
+function el(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  for (const k in (props || {})) {
+    if (k === 'class') e.className = props[k];
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), props[k]);
+    else e.setAttribute(k, props[k]);
+  }
+  kids.flat().forEach(c => { if (c != null) e.append(c.nodeType ? c : document.createTextNode(String(c))); });
+  return e;
+}
+const baht = s => (s / 100).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' บาท';
+const errMsg = d => (d && (ERR[d.error] || d.error)) || 'เกิดข้อผิดพลาด กรุณาลองใหม่';
+
+async function api(method, path, body) {
+  const h = {Authorization: 'Bearer ' + token};
+  if (body) h['Content-Type'] = 'application/json';
+  const r = await fetch(path, {method, headers: h, body: body ? JSON.stringify(body) : undefined});
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  if (r.status === 401) { logout('โทเคนไม่ถูกต้องหรือหมดอายุ'); throw new Error('401'); }
+  return {ok: r.ok, status: r.status, data: j};
+}
+
+function logout(msg) {
+  token = '';
+  try { sessionStorage.removeItem('staffToken'); } catch (e) {}
+  renderLogin(msg);
+}
+$out.addEventListener('click', () => logout());
+
+function renderLogin(msg) {
+  $out.classList.add('hide');
+  const t = el('input', {type: 'password', placeholder: 'โทเคนเจ้าหน้าที่', autocomplete: 'off'});
+  const go = () => {
+    if (!t.value.trim()) return;
+    token = t.value.trim();
+    try { sessionStorage.setItem('staffToken', token); } catch (e) {}
+    renderSearch();
+  };
+  t.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  $app.replaceChildren(el('div', {class: 'card'}, el('h3', null, 'เข้าสู่ระบบเจ้าหน้าที่'),
+    el('div', {class: 'err'}, msg || ''), t, el('button', {class: 'btn full', onclick: go}, 'เข้าสู่ระบบ')));
+}
+
+function renderSearch() {
+  $out.classList.remove('hide');
+  const code = el('input', {type: 'text', placeholder: 'รหัสผู้ชำระ', autocomplete: 'off'});
+  const result = el('div');
+  const go = async () => {
+    if (!code.value.trim()) return;
+    result.replaceChildren(el('div', {class: 'muted'}, 'กำลังค้นหา...'));
+    try {
+      const r = await api('GET', '/api/staff/payers/' + encodeURIComponent(code.value.trim()) + '/invoices');
+      if (!r.ok) { result.replaceChildren(el('div', {class: 'err'}, errMsg(r.data))); return; }
+      showPayer(result, r.data);
+    } catch (e) { if (e.message !== '401') result.replaceChildren(el('div', {class: 'err'}, 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')); }
+  };
+  code.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  $app.replaceChildren(el('div', {class: 'card'}, el('div', {class: 'row'}, code, el('button', {class: 'btn', onclick: go}, 'ค้นหา'))), result);
+}
+
+function showPayer(root, d) {
+  root.replaceChildren(el('div', {class: 'card'}, el('b', null, d.payer.name), el('div', {class: 'muted'}, 'รหัส: ' + d.payer.code), el('div', {class: 'muted'}, d.payer.address)));
+  const list = d.invoices.filter(i => UNPAID.includes(i.status));
+  if (!list.length) root.append(el('div', {class: 'card'}, 'ไม่มีรายการค้างชำระ'));
+  list.forEach(i => root.append(invoiceCard(i, d.payer)));
+}
+
+function invoiceCard(inv, payer) {
+  const rec = el('input', {type: 'number', min: '0', step: '0.01', inputmode: 'decimal', placeholder: '0.00'});
+  const change = el('div', {class: 'muted'}, 'เงินทอน: -');
+  const msg = el('div'), card = el('div', {class: 'card'});
+  const received = () => Math.round(parseFloat(rec.value || '0') * 100) || 0;
+  rec.addEventListener('input', () => {
+    const c = received() - inv.amountSatang;
+    change.textContent = 'เงินทอน: ' + (received() ? (c >= 0 ? baht(c) : 'ไม่พอ (ขาด ' + baht(-c) + ')') : '-');
+  });
+  const btn = el('button', {class: 'btn full', onclick: async () => {
+    msg.replaceChildren();
+    if (received() < inv.amountSatang) { msg.append(el('div', {class: 'err'}, 'จำนวนเงินที่รับไม่เพียงพอ')); return; }
+    btn.disabled = true;
+    try {
+      const r = await api('POST', '/api/staff/counter/pay', {invoiceId: inv.id, receivedSatang: received()});
+      if (!r.ok) { msg.append(el('div', {class: 'err'}, errMsg(r.data))); btn.disabled = false; return; }
+      done(card, r.data, inv, payer);
+    } catch (e) { btn.disabled = false; if (e.message !== '401') msg.append(el('div', {class: 'err'}, 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้')); }
+  }}, 'รับชำระเงินสด');
+  card.append(el('div', null, 'ใบแจ้งหนี้ ' + inv.invoiceNo + ' · งวด ' + inv.period),
+    el('div', {class: 'amt'}, baht(inv.amountSatang)),
+    el('label', null, 'รับเงิน (บาท)'), rec, change, btn, msg);
+  return card;
+}
+
+function done(card, res, inv, payer) {
+  const r = res.receipt, now = new Date().toLocaleString('th-TH', {dateStyle: 'long', timeStyle: 'short'});
+  card.replaceChildren(el('div', {class: 'ok'}, 'บันทึกการชำระเงินแล้ว เลขที่ใบเสร็จ ' + r.receiptNo),
+    el('p', null, 'ยอดชำระ ' + baht(r.amountSatang) + ' · เงินทอน ' + baht(r.changeSatang || 0)),
+    el('p', {class: 'muted'}, res.lineNotified ? 'ส่งแจ้งเตือนทาง LINE แล้ว' : 'ไม่ได้ส่งแจ้งเตือนทาง LINE (ผู้ชำระยังไม่เชื่อมบัญชี หรือส่งไม่สำเร็จ)'),
+    r.verifyUrl ? el('p', null, el('a', {href: r.verifyUrl, target: '_blank', rel: 'noopener'}, 'ลิงก์ตรวจสอบใบเสร็จ')) : null,
+    el('button', {class: 'btn full', onclick: () => window.print()}, 'พิมพ์ใบเสร็จ'));
+  $print.replaceChildren(el('h2', null, 'เทศบาล'), el('p', null, 'ใบเสร็จรับเงินค่าธรรมเนียมขยะ'), el('hr'),
+    el('p', null, 'เลขที่ใบเสร็จ: ' + r.receiptNo), el('p', null, 'ผู้ชำระ: ' + payer.name + ' (' + payer.code + ')'),
+    el('p', null, 'งวด: ' + inv.period + ' · ใบแจ้งหนี้ ' + inv.invoiceNo),
+    el('p', null, 'จำนวนเงิน: ' + baht(r.amountSatang)), el('p', null, 'เงินทอน: ' + baht(r.changeSatang || 0)),
+    el('p', null, 'วันที่: ' + now), el('hr'), el('p', null, 'ผู้รับเงิน: ______________________ (เจ้าหน้าที่เคาน์เตอร์)'));
+}
+
+token ? renderSearch() : renderLogin();
+</script>
+</body>
+</html>

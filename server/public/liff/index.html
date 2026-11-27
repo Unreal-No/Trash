@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ชำระค่าธรรมเนียมขยะ</title>
+<style>
+:root{--g:#1b7f4b;--gd:#145c37;--gl:#e3f2e8;--bg:#f2f7f3;--tx:#1d2b22;--mu:#5f6f65;--card:#fff;--bd:#d5e3d9;--er:#c0392b;--wa:#b9770e}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Sarabun","Noto Sans Thai",system-ui,sans-serif;background:var(--bg);color:var(--tx);line-height:1.6}
+header{background:var(--g);color:#fff;padding:14px 16px;font-weight:700;font-size:1.1rem}
+main{max-width:560px;margin:0 auto;padding:12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin-bottom:12px}
+.muted{color:var(--mu);font-size:.9rem}
+.tabs{display:flex;gap:6px;margin-bottom:12px}
+.tabs button{flex:1;padding:10px;border:1px solid var(--bd);background:#fff;border-radius:10px;font:inherit;cursor:pointer}
+.tabs button.on{background:var(--g);color:#fff;border-color:var(--g)}
+button.btn{display:block;width:100%;margin-top:8px;padding:12px;border:0;border-radius:10px;background:var(--g);color:#fff;font:inherit;font-weight:700;cursor:pointer}
+button.btn.alt{background:var(--gl);color:var(--gd)}
+button.btn.link{background:none;color:var(--er);font-weight:400}
+input[type=text]{width:100%;padding:11px;border:1px solid var(--bd);border-radius:8px;font:inherit;margin:4px 0 10px}
+.amt{font-size:1.5rem;font-weight:700;color:var(--gd)}
+.badge{display:inline-block;padding:1px 8px;border-radius:99px;font-size:.8rem;background:var(--gl);color:var(--gd)}
+.badge.w{background:#fdf0d5;color:var(--wa)}
+.err{color:var(--er);margin:6px 0}
+.ok{background:var(--gl);color:var(--gd);padding:10px;border-radius:8px;font-weight:700;margin-top:8px}
+.pay{margin-top:10px;border-top:1px dashed var(--bd);padding-top:8px}
+img.qr{display:block;max-width:100%;width:260px;margin:8px auto}
+.hide{display:none}
+a{color:var(--g)}
+</style>
+</head>
+<body>
+<header>ชำระค่าธรรมเนียมขยะ</header>
+<main id="app"><div class="card">กำลังโหลด...</div></main>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+const $app = document.getElementById('app');
+const UNPAID = ['UNPAID','PENDING','MISMATCH'];
+const METHOD = {QR:'QR พร้อมเพย์',BANK:'โอนผ่านธนาคาร',CASH:'เงินสด'};
+const STATUS = {UNPAID:'ค้างชำระ',PENDING:'รอตรวจสอบ',MISMATCH:'ยอดไม่ตรง',PAID:'ชำระแล้ว'};
+let tab = 'pay', data = null, polls = {};
+
+function el(tag, props, ...kids) {
+  const e = document.createElement(tag);
+  for (const k in (props || {})) {
+    if (k === 'class') e.className = props[k];
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), props[k]);
+    else e.setAttribute(k, props[k]);
+  }
+  kids.flat().forEach(c => { if (c != null) e.append(c.nodeType ? c : document.createTextNode(String(c))); });
+  return e;
+}
+const baht = s => (s / 100).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' บาท';
+const fdate = d => { const x = new Date(d); return isNaN(x) ? String(d || '-') : x.toLocaleString('th-TH', {dateStyle: 'medium', timeStyle: 'short'}); };
+const fday = d => { const x = new Date(d); return isNaN(x) ? String(d || '-') : x.toLocaleDateString('th-TH', {dateStyle: 'medium'}); };
+
+async function api(method, path, body) {
+  const h = {Authorization: 'Bearer ' + liff.getIDToken()};
+  if (body) h['Content-Type'] = 'application/json';
+  const r = await fetch(path, {method, headers: h, body: body ? JSON.stringify(body) : undefined});
+  let j = null; try { j = await r.json(); } catch (e) {}
+  return {status: r.status, ok: r.ok, data: j || {}};
+}
+
+async function init() {
+  try {
+    const cfg = await (await fetch('/api/config')).json();
+    await liff.init({liffId: cfg.liffId});
+    if (!liff.isLoggedIn()) { liff.login(); return; }
+    await load();
+  } catch (e) {
+    $app.replaceChildren(el('div', {class: 'card err'}, 'ไม่สามารถเริ่มระบบได้ กรุณาลองใหม่อีกครั้ง'));
+  }
+}
+
+async function load() {
+  const r = await api('GET', '/api/liff/invoices');
+  if (r.status === 404 && r.data.error === 'NOT_LINKED') { data = null; return renderLink(); }
+  if (!r.ok) { $app.replaceChildren(el('div', {class: 'card err'}, r.data.error || 'เกิดข้อผิดพลาด')); return; }
+  data = r.data; render();
+}
+
+function renderLink(msg) {
+  const pc = el('input', {type: 'text', id: 'pc', autocomplete: 'off'});
+  const inv = el('input', {type: 'text', id: 'inv', autocomplete: 'off'});
+  const cb = el('input', {type: 'checkbox', id: 'cs'});
+  const err = el('div', {class: 'err'}, msg || '');
+  const submit = async () => {
+    err.textContent = '';
+    if (!pc.value.trim() || !inv.value.trim()) { err.textContent = 'กรุณากรอกข้อมูลให้ครบ'; return; }
+    if (!cb.checked) { err.textContent = 'กรุณายินยอมตามนโยบายคุ้มครองข้อมูลส่วนบุคคล'; return; }
+    const r = await api('POST', '/api/liff/link', {payerCode: pc.value.trim(), invoiceNo: inv.value.trim(), consent: true});
+    if (r.ok) return load();
+    err.textContent = r.data.error || 'เชื่อมบัญชีไม่สำเร็จ ตรวจสอบข้อมูลอีกครั้ง';
+  };
+  $app.replaceChildren(el('div', {class: 'card'},
+    el('h3', null, 'เชื่อมบัญชีผู้ชำระ'),
+    el('p', {class: 'muted'}, 'กรอกข้อมูลจากใบแจ้งหนี้เพื่อยืนยันตัวตน'),
+    el('label', {for: 'pc'}, 'รหัสผู้ชำระ'), pc,
+    el('label', {for: 'inv'}, 'เลขที่ใบแจ้งหนี้ล่าสุด'), inv,
+    el('label', null, cb, ' ยินยอมตามนโยบายคุ้มครองข้อมูลส่วนบุคคล (', el('a', {href: '/privacy.html', target: '_blank'}, 'อ่านนโยบาย'), ')'),
+    err, el('button', {class: 'btn', onclick: submit}, 'เชื่อมบัญชี')));
+}
+
+function render() {
+  const tabs = el('div', {class: 'tabs'},
+    ['pay', 'rc'].map(t => el('button', {class: tab === t ? 'on' : '', onclick: () => { tab = t; render(); }}, t === 'pay' ? 'ค่าธรรมเนียม' : 'ใบเสร็จ')));
+  const body = el('div');
+  $app.replaceChildren(tabs, body);
+  if (tab === 'pay') renderPay(body); else renderReceipts(body);
+}
+
+function renderPay(root) {
+  const p = data.payer;
+  root.append(el('div', {class: 'card'},
+    el('b', null, p.nameMasked), el('div', {class: 'muted'}, 'รหัส: ' + p.code), el('div', {class: 'muted'}, p.addressMasked),
+    el('button', {class: 'btn link', onclick: unlink}, 'ยกเลิกการเชื่อมบัญชี')));
+  const list = data.invoices.filter(i => UNPAID.includes(i.status));
+  if (!list.length) root.append(el('div', {class: 'card'}, 'ไม่มีรายการค้างชำระ'));
+  list.forEach(i => root.append(invoiceCard(i)));
+}
+
+function invoiceCard(i) {
+  const box = el('div', {class: 'pay hide'});
+  const res = el('div', {id: 'res-' + i.id});
+  const qrBtn = el('button', {class: 'btn', onclick: () => genQr(i, res)}, 'สแกน QR พร้อมเพย์ / Mobile Banking');
+  const cashBtn = el('button', {class: 'btn alt', onclick: () => {
+    res.replaceChildren(el('div', {class: 'card'}, el('b', null, 'ชำระเงินสดที่เคาน์เตอร์เทศบาล'),
+      el('p', null, 'นำรหัสผู้ชำระ ' + data.payer.code + ' และเลขที่ใบแจ้งหนี้ ' + i.invoiceNo + ' ไปแสดงต่อเจ้าหน้าที่'),
+      el('p', {class: 'muted'}, 'เวลาทำการ จันทร์–ศุกร์ 08:30–16:30')));
+  }}, 'ชำระเงินสดที่เคาน์เตอร์เทศบาล');
+  box.append(qrBtn, cashBtn, res);
+  return el('div', {class: 'card', id: 'inv-' + i.id},
+    el('div', null, 'ใบแจ้งหนี้ ' + i.invoiceNo + ' ', el('span', {class: 'badge' + (i.status === 'MISMATCH' ? ' w' : '')}, STATUS[i.status] || i.status)),
+    el('div', {class: 'muted'}, 'งวด ' + i.period + ' · ครบกำหนด ' + fday(i.dueDate)),
+    el('div', {class: 'amt'}, baht(i.amountSatang)),
+    el('button', {class: 'btn alt', onclick: () => box.classList.toggle('hide')}, 'เลือกวิธีชำระเงิน'), box);
+}
+
+async function genQr(inv, res) {
+  res.replaceChildren(el('p', {class: 'muted'}, 'กำลังสร้าง QR...'));
+  const r = await api('POST', '/api/liff/invoices/' + encodeURIComponent(inv.id) + '/qr');
+  if (!r.ok) { res.replaceChildren(el('div', {class: 'err'}, r.data.error || 'สร้าง QR ไม่สำเร็จ')); return; }
+  const q = r.data, status = el('div');
+  const check = async () => { await refresh(); status.replaceChildren(paidMsg(inv.id)); };
+  res.replaceChildren(el('div', {class: 'card'},
+    el('img', {class: 'qr', alt: 'QR พร้อมเพย์', src: q.qrDataUrl}),
+    el('div', {class: 'amt'}, baht(q.amountSatang)),
+    el('div', {class: 'muted'}, 'หมดอายุ ' + fdate(q.expiresAt)),
+    el('p', null, 'บันทึกภาพแล้วเปิดแอปธนาคาร'),
+    el('button', {class: 'btn alt', onclick: check}, 'ตรวจสอบสถานะ'), status));
+  startPoll(inv.id, status);
+}
+
+function paidMsg(id) {
+  const i = data && data.invoices.find(x => x.id === id);
+  return i && i.status === 'PAID' ? el('div', {class: 'ok'}, 'ชำระเงินสำเร็จแล้ว ขอบคุณค่ะ') : el('div', {class: 'muted'}, 'ยังไม่พบการชำระเงิน');
+}
+
+async function refresh() {
+  const r = await api('GET', '/api/liff/invoices');
+  if (r.ok) data = r.data;
+}
+
+function startPoll(id, status) {
+  clearInterval(polls[id]);
+  const end = Date.now() + 5 * 60 * 1000;
+  polls[id] = setInterval(async () => {
+    await refresh();
+    const i = data && data.invoices.find(x => x.id === id);
+    if (i && i.status === 'PAID') {
+      clearInterval(polls[id]);
+      if (status.isConnected) status.replaceChildren(paidMsg(id));
+      const c = document.getElementById('inv-' + id);
+      if (c) c.append(el('div', {class: 'ok'}, 'ชำระเงินสำเร็จแล้ว ขอบคุณค่ะ'));
+    } else if (Date.now() > end) clearInterval(polls[id]);
+  }, 5000);
+}
+
+async function renderReceipts(root) {
+  root.append(el('div', {class: 'muted'}, 'กำลังโหลด...'));
+  const r = await api('GET', '/api/liff/receipts');
+  root.replaceChildren();
+  if (!r.ok) { root.append(el('div', {class: 'err'}, r.data.error || 'โหลดใบเสร็จไม่สำเร็จ')); return; }
+  const rs = r.data.receipts || [];
+  if (!rs.length) root.append(el('div', {class: 'card'}, 'ยังไม่มีใบเสร็จ'));
+  rs.forEach(x => root.append(el('div', {class: 'card'},
+    el('b', null, 'ใบเสร็จ ' + x.receiptNo), el('div', {class: 'amt'}, baht(x.amountSatang)),
+    el('div', {class: 'muted'}, fdate(x.paidAt) + ' · ' + (METHOD[x.method] || x.method)),
+    x.verifyUrl ? el('a', {href: x.verifyUrl, target: '_blank', rel: 'noopener'}, 'ตรวจสอบใบเสร็จ') : null)));
+}
+
+async function unlink() {
+  if (!confirm('ต้องการยกเลิกการเชื่อมบัญชีหรือไม่?')) return;
+  Object.values(polls).forEach(clearInterval);
+  const r = await api('DELETE', '/api/liff/link');
+  if (r.ok) { data = null; renderLink(); } else alert(r.data.error || 'ยกเลิกไม่สำเร็จ');
+}
+
+init();
+</script>
+</body>
+</html>
