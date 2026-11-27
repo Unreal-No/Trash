@@ -3,6 +3,8 @@
 ชำระผ่าน **Thai QR (PromptPay Bill Payment)** / Mobile Banking / **เงินสดที่เคาน์เตอร์** → ธนาคาร callback อัปเดตสถานะอัตโนมัติ → ส่ง **ใบเสร็จดิจิทัล** เข้า LINE
 
 - ออกแบบ/แผนงาน/PDPA: [docs/DESIGN.md](docs/DESIGN.md)
+![ภาพรวมการใช้งาน](docs/screens/overview.png)
+
 - Backend: `server/` (Node 22 + TypeScript + Express + PostgreSQL)
 - หน้า LIFF ประชาชน: `/liff/` · หน้าเคาน์เตอร์: `/staff/` · นโยบายความเป็นส่วนตัว: `/privacy.html`
 

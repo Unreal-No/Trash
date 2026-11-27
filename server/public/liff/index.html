@@ -52,8 +52,8 @@ function el(tag, props, ...kids) {
   return e;
 }
 const baht = s => (s / 100).toLocaleString('th-TH', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' บาท';
-const fdate = d => { const x = new Date(d); return isNaN(x) ? String(d || '-') : x.toLocaleString('th-TH', {dateStyle: 'medium', timeStyle: 'short'}); };
-const fday = d => { const x = new Date(d); return isNaN(x) ? String(d || '-') : x.toLocaleDateString('th-TH', {dateStyle: 'medium'}); };
+const fdate = d => { const x = new Date(d); return isNaN(x) ? String(d || '-') : x.toLocaleString('th-TH', {dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Bangkok'}); };
+const fday = d => { const x = new Date(d); return isNaN(x) ? String(d || '-') : x.toLocaleDateString('th-TH', {dateStyle: 'medium', timeZone: 'Asia/Bangkok'}); };
 
 async function api(method, path, body) {
   const h = {Authorization: 'Bearer ' + liff.getIDToken()};
@@ -173,7 +173,11 @@ function startPoll(id, status) {
       clearInterval(polls[id]);
       if (status.isConnected) status.replaceChildren(paidMsg(id));
       const c = document.getElementById('inv-' + id);
-      if (c) c.append(el('div', {class: 'ok'}, 'ชำระเงินสำเร็จแล้ว ขอบคุณค่ะ'));
+      if (c) c.replaceChildren(
+        el('div', null, 'ใบแจ้งหนี้ ' + i.invoiceNo + ' · งวด ' + i.period),
+        el('div', {class: 'amt'}, baht(i.amountSatang)),
+        el('div', {class: 'ok'}, '✔ ชำระเงินสำเร็จแล้ว ใบเสร็จถูกส่งเข้า LINE'),
+        el('button', {class: 'btn alt', onclick: () => { tab = 'rc'; render(); }}, 'ดูใบเสร็จ'));
     } else if (Date.now() > end) clearInterval(polls[id]);
   }, 5000);
 }

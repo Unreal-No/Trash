@@ -129,7 +129,7 @@ function invoiceCard(inv, payer) {
 }
 
 function done(card, res, inv, payer) {
-  const r = res.receipt, now = new Date().toLocaleString('th-TH', {dateStyle: 'long', timeStyle: 'short'});
+  const r = res.receipt, now = new Date().toLocaleString('th-TH', {dateStyle: 'long', timeStyle: 'short', timeZone: 'Asia/Bangkok'});
   card.replaceChildren(el('div', {class: 'ok'}, 'บันทึกการชำระเงินแล้ว เลขที่ใบเสร็จ ' + r.receiptNo),
     el('p', null, 'ยอดชำระ ' + baht(r.amountSatang) + ' · เงินทอน ' + baht(r.changeSatang || 0)),
     el('p', {class: 'muted'}, res.lineNotified ? 'ส่งแจ้งเตือนทาง LINE แล้ว' : 'ไม่ได้ส่งแจ้งเตือนทาง LINE (ผู้ชำระยังไม่เชื่อมบัญชี หรือส่งไม่สำเร็จ)'),
