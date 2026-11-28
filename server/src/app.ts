@@ -59,7 +59,7 @@ export function createApp({ cfg, store, line, verifyIdToken }: Deps) {
   );
   app.use(express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), '../public')));
 
-  app.get('/api/config', (_req, res) => void res.json({ liffId: cfg.line.liffId }));
+  app.get('/api/config', (_req, res) => void res.json({ liffId: cfg.line.liffId, demo: cfg.store === 'memory' }));
   app.get('/healthz', (_req, res) => void res.json({ ok: true }));
 
   // ---------- LINE webhook ----------

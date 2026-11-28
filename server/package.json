@@ -6,7 +6,8 @@
   "engines": { "node": ">=22.18" },
   "scripts": {
     "start": "node src/index.ts",
-    "dev": "STORE=memory node --watch src/index.ts",
+    "dev": "node --watch src/index.ts --demo",
+    "demo": "node src/index.ts --demo",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

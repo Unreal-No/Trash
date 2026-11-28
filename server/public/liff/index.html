@@ -81,6 +81,8 @@ async function api(method, path, body) {
 async function init() {
   try {
     const cfg = await (await fetch('/api/config')).json();
+    // โหมดสาธิต (เปิดในเบราว์เซอร์ทั่วไป ไม่ผ่าน LINE)
+    if (cfg.demo) window.liff = {init: async () => {}, isLoggedIn: () => true, login() {}, getIDToken: () => 'demo-U1'};
     await liff.init({liffId: cfg.liffId});
     if (!liff.isLoggedIn()) { liff.login(); return; }
     await load();

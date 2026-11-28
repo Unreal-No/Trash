@@ -19,7 +19,7 @@ export interface Config {
 }
 
 export function loadConfig(): Config {
-  const dev = process.env.STORE === 'memory';
+  const dev = process.env.STORE === 'memory' || process.argv.includes('--demo');
   const dataKey = Buffer.from(req('DATA_KEY', dev ? '0'.repeat(64) : undefined), 'hex');
   if (dataKey.length !== 32) throw new Error('DATA_KEY must be 64 hex chars');
   return {
