@@ -1,0 +1,19 @@
+# PostgreSQL + แอป (ตารางถูกสร้างอัตโนมัติด้วย migration ตอนแอปเริ่ม)
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: trash
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      POSTGRES_DB: trash
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  api:
+    build: ./server
+    env_file: ./server/.env
+    environment:
+      DATABASE_URL: postgres://trash:${DB_PASSWORD}@db:5432/trash
+    depends_on: [db]
+    ports: ["3000:3000"]
+volumes:
+  pgdata:
