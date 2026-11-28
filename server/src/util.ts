@@ -41,3 +41,51 @@ export function periodsSummary(periods: string[]): string {
   if (s.length === 1) return periodTh(s[0]!);
   return `${periodTh(s[0]!)} – ${periodTh(s[s.length - 1]!)} (${s.length} งวด)`;
 }
+
+/** งวดปัจจุบัน (พ.ศ.) ตามเวลาไทย เช่น 2569-11 */
+export function currentPeriod(now = new Date()): string {
+  const t = new Date(now.getTime() + 7 * 3600_000);
+  return `${t.getUTCFullYear() + 543}-${pad(t.getUTCMonth() + 1)}`;
+}
+/** วันที่วันนี้ (ค.ศ.) ตามเวลาไทย YYYY-MM-DD */
+export function todayBangkok(now = new Date()): string {
+  return new Date(now.getTime() + 7 * 3600_000).toISOString().slice(0, 10);
+}
+
+const TH_DIGITS = '๐๑๒๓๔๕๖๗๘๙';
+/** บ้านเลขที่มาตรฐาน: เลขไทย→อารบิก, ตัดช่องว่าง/คำว่า "เลขที่" */
+export function normalizeHouseNo(s: string): string {
+  return s
+    .replace(/[๐-๙]/g, (d) => String(TH_DIGITS.indexOf(d)))
+    .replace(/^\s*(บ้าน)?เลขที่\s*/, '')
+    .replace(/\s+/g, '')
+    .slice(0, 20);
+}
+
+export interface AddressParts {
+  houseNo: string;
+  moo?: string | null;
+  soi?: string | null;
+  road?: string | null;
+  community?: string | null;
+  subdistrict?: string | null;
+}
+export function formatAddress(a: AddressParts): string {
+  return [
+    a.houseNo,
+    a.moo && `ม.${a.moo}`,
+    a.soi && `ซ.${a.soi}`,
+    a.road && `ถ.${a.road}`,
+    a.community && (a.community.startsWith('ชุมชน') ? a.community : `ชุมชน${a.community}`),
+    a.subdistrict && `ต.${a.subdistrict}`,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/** ข้อความอิสระจากผู้ใช้: ตัด control char/แท็ก และจำกัดความยาว */
+export function cleanText(v: unknown, max: number): string | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, max);
+  return s || null;
+}

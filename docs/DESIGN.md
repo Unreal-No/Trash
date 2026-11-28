@@ -76,37 +76,42 @@
 - HTTPS เท่านั้น, secrets ใน env/secret manager, ข้อมูลอยู่ในไทย (cloud region TH หรือ server เทศบาล)
 - ระยะเวลาเก็บ: ข้อมูลการเงินตามระเบียบ (10 ปี), log เข้าถึง 1 ปี
 
-## 6. Data Model (ย่อ)
-ดู `server/db/schema.sql` — `payers` (1 บัญชี = 1 สถานที่, category, rate), `line_links` (LINE↔บัญชี หลายต่อหลาย + label), `invoices`, `orders` + `order_items`, `payments`, `receipts` + `receipt_items`, `staff`, `audit_logs`
+## 6. ระบบหลังบ้าน (Back-office)
 
-## 7. API
-| Method | Path | ผู้ใช้ |
-|---|---|---|
-| POST | `/webhook/line` | LINE platform (ตรวจ `x-line-signature`) |
-| GET/POST/DELETE | `/api/liff/accounts[/:code]` | ดู/ผูก/ยกเลิกบัญชี |
-| POST | `/api/liff/quote` | คำนวณยอด `{invoiceIds, years:[{payerCode,fiscalYear}]}` |
-| POST | `/api/liff/orders` | สร้างคำสั่งชำระ + Thai QR |
-| GET | `/api/liff/orders/:no` | สถานะ (polling) |
-| GET | `/api/liff/receipts` | ใบเสร็จทุกบัญชี |
-| POST | `/api/bank/callback` | ธนาคาร (HMAC) |
-| GET | `/api/staff/payers/:code` | เจ้าหน้าที่ค้นหา |
-| POST | `/api/staff/quote`, `/api/staff/counter/pay` | รับเงินสด (รายงวด/ทั้งปี) |
-| GET | `/r/:receiptNo` | ตรวจสอบใบเสร็จ |
+**ทะเบียนบ้าน** (1 หลัง = 1 บัญชีผู้ชำระ): บ้านเลขที่, หมู่, ซอย, ถนน, ชุมชน, ตำบล, เจ้าของ/โทร (เข้ารหัส), ประเภท, อัตรา, พิกัด, สถานะใช้งาน
+- ค้นหา: **บ้านเลขที่ตรงตัว** (`3` ไม่เจอ `13`, `30`, `3/1`; รับเลขไทย ๓) + กรองตำบล/ชุมชน/ถนน/ซอย/หมู่/ประเภท/สถานะจ่าย/สถานะตรวจสอบ + ค้นชื่อ/รหัส
+- สำรวจภาคสนามบนมือถือ: เพิ่ม/แก้ไข + ปักหมุดจาก GPS หรือลากหมุดบนแผนที่
+- **ตรวจสอบการบันทึก**: ผู้ไม่มีสิทธิ์ตรวจสอบแก้ไข → บ้านเป็น "รอตรวจสอบ" + เข้าคิว → หัวหน้าอนุมัติ หรือปฏิเสธ (ย้อนข้อมูลกลับอัตโนมัติ) · เก็บประวัติก่อน/หลังทุกครั้ง
 
-LIFF ยืนยันตัวตนด้วย **LINE ID token** ตรวจกับ `https://api.line.me/oauth2/v2.1/verify` ฝั่ง server (ไม่เชื่อ userId จาก client)
+**สถานะการชำระของบ้าน** (นับเฉพาะงวดที่ถึงแล้ว ไม่นับงวดที่จ่ายล่วงหน้า): `PAID` ไม่ค้าง · `DUE` ค้างยังไม่เลยกำหนด · `OVERDUE` เลยกำหนด · `NONE` ยังไม่มีใบแจ้งหนี้
+
+**Dashboard**: จำนวนบ้าน (อยู่อาศัย/ร้านค้า, ปักหมุดแล้ว, รอตรวจสอบ), ยอดออกใบแจ้งหนี้/เก็บได้/ค้าง/อัตราการจัดเก็บ ตามปีงบประมาณ, กราฟรายเดือน, สัดส่วนสถานะ, แยกตามชุมชน, ลูกหนี้สูงสุด, รับชำระล่าสุด, แยกช่องทาง QR/โอน/เงินสด
+
+**แผนที่**: หมุดบ้านสีตามสถานะ (เขียว/เหลือง/แดง/เทา) กรองชุมชน/สถานะ · **เปิด/ปิดได้ในตั้งค่า** (ปิดแผนที่ทั้งหมด หรือปิดเฉพาะสีสถานะ) · ไม่ส่งชื่อเจ้าของไปที่แผนที่ · เห็นเฉพาะเจ้าหน้าที่
+
+**สิทธิ์ 5 ระดับ**: ผู้ดูแลระบบ, หัวหน้า/ผู้ตรวจสอบ, การเงิน, สำรวจ, ผู้บริหาร(ดูอย่างเดียว) — ตารางเต็มใน [API.md](API.md) · เข้าสู่ระบบด้วยรหัสผ่าน (scrypt) + session 12 ชม. · ผิด 5 ครั้งล็อก 15 นาที
+
+**อื่นๆ**: ออกใบแจ้งหนี้ประจำงวดทั้งเขต, รายงานยอดค้าง CSV (เปิดใน Excel ได้), บันทึกการใช้งาน (ใครดู/แก้/ส่งออกอะไร), ตั้งค่าข้อมูลเทศบาล/อัตราเริ่มต้น/รายชื่อชุมชน-ถนน-ซอย
+
+## 7. Data Model และ API
+- ตาราง: `server/db/migrations/001_init.sql` — `houses`, `house_changes`, `line_links`, `invoices`, `orders`/`order_items`, `payments`, `receipts`/`receipt_items`, `staff_users`, `staff_sessions`, `settings`, `audit_logs`
+- API ทั้งหมด: [API.md](API.md)
+- LIFF ยืนยันตัวตนด้วย **LINE ID token** ตรวจกับ `https://api.line.me/oauth2/v2.1/verify` ฝั่ง server (ไม่เชื่อ userId จาก client)
 
 ## 8. Tech Stack (ต้นทุนต่ำ ดูแลง่าย)
-- Node.js 22 + TypeScript + Express, PostgreSQL 16
-- LIFF (HTML/JS), Back-office (HTML/JS หรือ React เฟส 2)
+- Node.js 22 + TypeScript + Express
+- ฐานข้อมูล: PostgreSQL 16 หรือ **PGlite** (PostgreSQL ฝังในโปรแกรม ไม่ต้องติดตั้ง เหมาะกับเครื่องเดียว) — โค้ดชุดเดียวกัน, migration อัตโนมัติ
+- หน้าเว็บ: HTML/JS ล้วน (ไม่ต้อง build), Leaflet + OpenStreetMap, Chart.js — เสิร์ฟไลบรารีจากเครื่องเอง
 - Deploy: Docker บน server เทศบาล หรือ Cloud region ไทย
 
 ## 9. แผนพัฒนา
 | เฟส | งาน | ระยะ |
 |---|---|---|
 | 0 | ติดต่อธนาคารขอ Biller ID + spec callback, สร้าง LINE OA/LIFF, ร่างนโยบาย PDPA | 2–4 สัปดาห์ (คู่ขนาน) |
-| 1 MVP | ผูกบัญชี, ดูยอด, Thai QR, callback, เคาน์เตอร์เงินสด, ใบเสร็จ LINE | 4–6 สัปดาห์ |
-| 2 | Back-office เต็ม, รายงาน, กระทบยอด statement, PDF, แจ้งเตือนค้างชำระ | 4 สัปดาห์ |
-| 3 | Deeplink Mobile Banking, e-Receipt ลายมือชื่อดิจิทัล, Dashboard ผู้บริหาร | 4 สัปดาห์ |
+| 1 MVP ✔ | ผูกหลายบ้าน, ดูยอด, Thai QR รวม/รายปี, callback, เคาน์เตอร์เงินสด, ใบเสร็จ LINE | เสร็จ (รอทดสอบกับธนาคาร/LINE จริง) |
+| 2 ✔ | หลังบ้าน: ทะเบียนบ้าน+สำรวจ+ตรวจสอบ, สิทธิ์ 5 ระดับ, Dashboard, แผนที่, รายงาน CSV, ตั้งค่า, audit | เสร็จ (ทดสอบด้วยข้อมูลสาธิต) |
+| 2.1 | นำเข้าทะเบียนบ้านจาก Excel/CSV, ข้อมูลชุมชนจริงของเทศบาล, กระทบยอด statement ธนาคาร | 2–3 สัปดาห์ |
+| 3 | แจ้งเตือนค้างชำระทาง LINE, PDF ใบเสร็จ, Deeplink Mobile Banking, e-Receipt ลายมือชื่อดิจิทัล | 4 สัปดาห์ |
 
 ## 10. สิ่งที่ต้องได้จากธนาคาร (blocker)
 - Biller ID + Suffix, รูปแบบ callback (field, การเซ็น), IP ต้นทาง, sandbox

@@ -1,35 +1,46 @@
 import { createApp } from './app.ts';
+import { AuthService } from './auth.ts';
 import { loadConfig } from './config.ts';
-import { encrypt, sha256Hex } from './crypto.ts';
-import { lineClient, lineIdTokenVerifier, type LineClient } from './line.ts';
-import { MemoryStore } from './store/memory.ts';
-import { PgStore } from './store/pg.ts';
-import type { Store } from './store/types.ts';
+import { migrate, openPg, openPglite } from './db.ts';
+import { lineClient, lineIdTokenVerifier, type IdTokenVerifier, type LineClient } from './line.ts';
+import { DEMO_USERS, isEmpty, seedDemo } from './seed.ts';
 
 const cfg = loadConfig();
-let store: Store;
-let line: LineClient = lineClient(cfg.line.channelAccessToken);
-let verifyIdToken = lineIdTokenVerifier(cfg.line.loginChannelId);
+const db = cfg.databaseUrl ? await openPg(cfg.databaseUrl) : await openPglite(cfg.dataDir);
+await migrate(db);
 
-if (cfg.store === 'memory') {
-  // โหมดสาธิต: ข้อมูลตัวอย่าง, LIFF token = "demo-<userId>", staff token = "demo-cashier"
-  const m = new MemoryStore();
-  const k = cfg.dataKey;
-  const seed = (code: string, name: string, addr: string, category: 'RESIDENTIAL' | 'COMMERCIAL', rate: number, invNo: string) => {
-    const p = m.addPayer({ code, nameEnc: encrypt(name, k), addressEnc: encrypt(addr, k), phoneEnc: null, category, rateSatang: rate });
-    m.addInvoice({ invoiceNo: invNo, payerId: p.id, period: '2569-11', amountSatang: rate, dueDate: '2026-12-15' });
-  };
-  seed('A0001', 'นายสมชาย ใจดี', '99/1 หมู่ 2 ต.ตัวอย่าง', 'RESIDENTIAL', 4000, 'INV256911001');
-  seed('A0002', 'นางสมศรี ใจดี', '12 หมู่ 3 ต.ตัวอย่าง', 'RESIDENTIAL', 4000, 'INV256911002');
-  seed('B0001', 'ร้านสมชายพาณิชย์', '5/7 ถ.ตลาด ต.ตัวอย่าง', 'COMMERCIAL', 20000, 'INV256911003');
-  m.staff.set(sha256Hex('demo-cashier'), { id: '00000000-0000-0000-0000-000000000001', name: 'เจ้าหน้าที่ทดสอบ', role: 'CASHIER' });
-  store = m;
+let line: LineClient = lineClient(cfg.line.channelAccessToken);
+let verifyIdToken: IdTokenVerifier = lineIdTokenVerifier(cfg.line.loginChannelId);
+
+if (cfg.demo) {
+  if (await isEmpty(db)) {
+    console.log('กำลังสร้างข้อมูลสาธิต...');
+    console.log(`สร้างแล้ว ${(await seedDemo(db, cfg)).houses} หลัง`);
+  }
+  // จำลอง LINE: token "demo-<userId>"
   verifyIdToken = async (t) => (t.startsWith('demo-') ? t.slice(5) : null);
   line = { push: async (to) => console.log('[demo] LINE push →', to), reply: async () => {} };
-  console.log('DEMO: A0001/INV256911001, A0002/INV256911002, B0001/INV256911003 (ร้านค้า), staff token demo-cashier');
+  console.log('\n=== โหมดสาธิต (ข้อมูลสมมติ) ===');
+  console.log(`หลังบ้าน:  ${cfg.baseUrl}/admin/`);
+  for (const u of DEMO_USERS) console.log(`  ${u.username.padEnd(8)} / ${u.password.padEnd(11)} ${u.name}`);
+  console.log(`ประชาชน:  ${cfg.baseUrl}/liff/  (ผูกด้วย A0001 / INV256911001)`);
 } else {
-  if (!cfg.databaseUrl) throw new Error('Missing env DATABASE_URL');
-  store = new PgStore(cfg.databaseUrl);
+  // ผู้ดูแลคนแรก: ตั้ง ADMIN_USERNAME / ADMIN_PASSWORD ตอนเริ่มระบบครั้งแรก
+  const auth = new AuthService(db);
+  if ((await auth.countUsers()) === 0) {
+    const u = process.env.ADMIN_USERNAME;
+    const p = process.env.ADMIN_PASSWORD;
+    if (!u || !p) throw new Error('ยังไม่มีผู้ใช้ในระบบ: ตั้ง ADMIN_USERNAME และ ADMIN_PASSWORD เพื่อสร้างผู้ดูแลคนแรก');
+    await auth.createUser({ username: u, password: p, name: 'ผู้ดูแลระบบ', role: 'ADMIN' });
+    console.log(`สร้างผู้ดูแลระบบ ${u} แล้ว — เปลี่ยนรหัสผ่านหลังเข้าใช้งาน`);
+  }
 }
 
-createApp({ cfg, store, line, verifyIdToken }).listen(cfg.port, () => console.log(`listening on :${cfg.port}`));
+const server = createApp({ cfg, db, line, verifyIdToken }).listen(cfg.port, () => console.log(`\nพร้อมใช้งาน: ${cfg.baseUrl}`));
+const stop = async () => {
+  server.close();
+  await db.close();
+  process.exit(0);
+};
+process.on('SIGINT', stop);
+process.on('SIGTERM', stop);

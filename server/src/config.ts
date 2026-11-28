@@ -7,11 +7,11 @@ function req(name: string, fallback?: string): string {
 export interface Config {
   port: number;
   baseUrl: string;
-  store: 'memory' | 'pg';
-  databaseUrl?: string;
+  demo: boolean; // โหมดสาธิต: ข้อมูลตัวอย่าง + จำลอง LINE login
+  databaseUrl?: string; // มี = ใช้ PostgreSQL, ไม่มี = PGlite ในโฟลเดอร์ dataDir
+  dataDir: string;
   dataKey: Buffer; // AES-256 key (32 bytes)
   receiptSecret: string;
-  municipalityName: string;
   billerId: string;
   qrTtlMinutes: number;
   bank: { callbackSecret: string; allowedIps: string[] };
@@ -19,28 +19,30 @@ export interface Config {
 }
 
 export function loadConfig(): Config {
-  const dev = process.env.STORE === 'memory' || process.argv.includes('--demo');
-  const dataKey = Buffer.from(req('DATA_KEY', dev ? '0'.repeat(64) : undefined), 'hex');
+  const demo = process.env.STORE === 'memory' || process.argv.includes('--demo');
+  const d = (v: string) => (demo ? v : undefined);
+  const dataKey = Buffer.from(req('DATA_KEY', d('0'.repeat(64))), 'hex');
   if (dataKey.length !== 32) throw new Error('DATA_KEY must be 64 hex chars');
+  const port = Number(process.env.PORT ?? 3000);
   return {
-    port: Number(process.env.PORT ?? 3000),
-    baseUrl: req('BASE_URL', dev ? 'http://localhost:3000' : undefined),
-    store: dev ? 'memory' : 'pg',
-    databaseUrl: process.env.DATABASE_URL,
+    port,
+    baseUrl: req('BASE_URL', d(`http://localhost:${port}`)),
+    demo,
+    databaseUrl: process.env.DATABASE_URL || undefined,
+    dataDir: process.env.DATA_DIR ?? (demo ? './demo-data' : './data'),
     dataKey,
-    receiptSecret: req('RECEIPT_SECRET', dev ? 'dev-receipt-secret' : undefined),
-    municipalityName: process.env.MUNICIPALITY_NAME ?? 'เทศบาล',
-    billerId: req('BILLER_ID', dev ? '099400000000001' : undefined),
+    receiptSecret: req('RECEIPT_SECRET', d('dev-receipt-secret')),
+    billerId: req('BILLER_ID', d('099400000000001')),
     qrTtlMinutes: Number(process.env.QR_TTL_MINUTES ?? 15),
     bank: {
-      callbackSecret: req('BANK_CALLBACK_SECRET', dev ? 'dev-bank-secret' : undefined),
+      callbackSecret: req('BANK_CALLBACK_SECRET', d('dev-bank-secret')),
       allowedIps: (process.env.BANK_ALLOWED_IPS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
     },
     line: {
-      channelSecret: req('LINE_CHANNEL_SECRET', dev ? 'dev-line-secret' : undefined),
-      channelAccessToken: req('LINE_CHANNEL_ACCESS_TOKEN', dev ? 'dev' : undefined),
-      loginChannelId: req('LINE_LOGIN_CHANNEL_ID', dev ? 'dev' : undefined),
-      liffId: req('LIFF_ID', dev ? 'dev-liff' : undefined),
+      channelSecret: req('LINE_CHANNEL_SECRET', d('dev-line-secret')),
+      channelAccessToken: req('LINE_CHANNEL_ACCESS_TOKEN', d('dev')),
+      loginChannelId: req('LINE_LOGIN_CHANNEL_ID', d('dev')),
+      liffId: req('LIFF_ID', d('dev-liff')),
     },
   };
 }
