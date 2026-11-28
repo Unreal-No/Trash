@@ -38,7 +38,8 @@ npm run demo
 
 ## ทดสอบ
 ```bash
-cd server && npm test
+cd server
+npm test
 ```
 
 ## ใช้งานจริง
@@ -46,6 +47,6 @@ cd server && npm test
 2. สร้าง LINE OA (Messaging API) + LINE Login + LIFF (endpoint `https://<domain>/liff/`) · webhook `https://<domain>/webhook/line`
 3. `cp server/.env.example server/.env` แล้วกรอกค่า (สร้าง `DATA_KEY` ด้วย `openssl rand -hex 32` และสำรองไว้ — ถ้าหายจะถอดรหัสชื่อ/เบอร์โทรไม่ได้)
 4. เลือกฐานข้อมูล
-   - เครื่องเดียว: ไม่ต้องตั้ง `DATABASE_URL` → `cd server && npm start` (ข้อมูลอยู่ที่ `DATA_DIR`)
+   - เครื่องเดียว: ไม่ต้องตั้ง `DATABASE_URL` → `cd server` แล้ว `npm start` (ข้อมูลอยู่ที่ `DATA_DIR`)
    - PostgreSQL: `DB_PASSWORD=... docker compose up -d`
 5. เข้า `/admin/` ด้วย `ADMIN_USERNAME`/`ADMIN_PASSWORD` แล้วเพิ่มผู้ใช้ ตั้งค่าเทศบาล รายชื่อชุมชน อัตราค่าธรรมเนียม
